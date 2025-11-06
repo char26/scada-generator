@@ -1,60 +1,62 @@
 from pymodbus.client import AsyncModbusTcpClient, AsyncModbusUdpClient
-import rpyc
 import asyncio
-import sys
-from rpyc.utils.server import ThreadedServer
+from dataclasses import dataclass
 
 
-class ModbusProvider(rpyc.Service):
-    """
-    Wrapper for pymodbus clients to represent a Modbus connection between a single source and destination.
+@dataclass
+class ModbusPacket:
+    func: int
+    data: bytes
+    checksum: bytes
 
-    Receives a ModbusPacket from the coordinator and sends it to the destination.
 
-    Args:
-        dest: Tuple of destination address and port.
-        mode: Mode of the connection. Can be "tcp" or "udp".
-    """
-
-    def __init__(
-        self,
-        dest: tuple[str, int],
-        mode: str = "tcp",
-    ) -> None:
+class ModbusProvider:
+    def __init__(self, dest: tuple[str, int], mode: str = "tcp"):
         self.dest_address = dest[0]
         self.dest_port = dest[1]
-        self.mode = mode
-
         if mode == "tcp":
             self.client = AsyncModbusTcpClient(self.dest_address, port=self.dest_port)
         elif mode == "udp":
             self.client = AsyncModbusUdpClient(self.dest_address, port=self.dest_port)
         else:
             raise ValueError(f"Invalid mode: {mode}")
+        self.queue = asyncio.Queue()
+        self.running = False
 
-    def cleanup(self) -> None:
-        self.client.close()
+    async def connect(self):
+        await self.client.connect()
+        if not self.client.connected:
+            raise ConnectionError(
+                f"Failed to connect to {self.dest_address}:{self.dest_port}"
+            )
+        print(f"Connected to {self.dest_address}:{self.dest_port}")
 
-    @staticmethod
-    async def create_and_connect(
-        dest: tuple[str, int], mode: str = "tcp"
-    ) -> "ModbusProvider":
-        provider = ModbusProvider(dest, mode)
-        await provider.client.connect()
-        assert provider.client.connected
+    async def start(self):
+        """Start processing packets from queue"""
+        await self.connect()
+        self.running = True
+        while self.running:
+            try:
+                packet = await self.queue.get()
+                await self._process_packet(packet)
+                print(f"Processed packet: {packet}")
+            except Exception as e:
+                print(f"Error processing packet: {e}")
 
-        ## Test
-        await provider.client.write_coil(2, False)
-        result = await provider.client.read_coils(2, count=1)
-        print(result.bits[0])
-        ##
+    async def _process_packet(self, packet: ModbusPacket):
+        if packet.func == 1:
+            print("Address = ", packet.data[0], "Count = ", packet.data[1])
+            result = await self.client.read_coils(packet.data[0], count=packet.data[1])
+            print(
+                f"Read coils result: {result.bits[0:packet.data[1]]}"
+            )  # seems like a bug where it returns more than count sometimes (count > 9?)
+        # TODO: more function codes
 
-        return provider
+    async def send_packet(self, packet: ModbusPacket):
+        """Add packet to queue for processing"""
+        await self.queue.put(packet)
 
-
-if __name__ == "__main__":
-    asyncio.run(ModbusProvider.create_and_connect(("localhost", 8080), "tcp"))
-
-    rpyc_port = 18861
-    t = ThreadedServer(ModbusProvider, port=rpyc_port)
-    t.start()
+    async def stop(self):
+        self.running = False
+        if self.client:
+            self.client.close()
