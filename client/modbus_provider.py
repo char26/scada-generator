@@ -1,16 +1,11 @@
 from pymodbus.client import AsyncModbusTcpClient, AsyncModbusUdpClient
 import asyncio
-from dataclasses import dataclass
-
-
-@dataclass
-class ModbusPacket:
-    func: int
-    data: bytes
-    checksum: bytes
+from modbus_packet import ModbusPacket
 
 
 class ModbusProvider:
+    """Represents a device communicating over Modbus"""
+
     def __init__(self, dest: tuple[str, int], mode: str = "tcp"):
         self.dest_address = dest[0]
         self.dest_port = dest[1]
