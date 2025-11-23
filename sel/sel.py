@@ -69,6 +69,10 @@ def extract_tcp_streams(packets):
     A stream is defined by the 5-tuple: (src_ip, src_port, dst_ip, dst_port, protocol)
     We track each direction separately.
 
+    Args:
+        packets: list
+            List of packets
+
     Returns:
         dict: Dictionary of streams with their packets and data
     """
@@ -109,7 +113,15 @@ def extract_tcp_streams(packets):
 
 
 def get_sel_streams(streams: dict):
-    """Get the SEL streams from the streams dictionary"""
+    """Get the SEL streams from the streams dictionary
+
+    Args:
+        streams: dict
+            Dictionary of TCP streams with their packets
+
+    Returns:
+        dict: Dictionary of SEL streams with their packets
+    """
     assert isinstance(streams, dict), "streams must be a dictionary"
     assert len(streams) > 0, "streams must not be empty"
 
@@ -131,7 +143,12 @@ def get_sel_streams(streams: dict):
 
 
 def analyze_sel(sel_streams: dict):
-    """Analyze SEL ASCII data of the streams"""
+    """Analyze SEL ASCII data of the streams
+
+    Args:
+        sel_streams: dict
+            Dictionary of SEL streams with their packets
+    """
     assert isinstance(sel_streams, dict), "sel_streams must be a dictionary"
     assert len(sel_streams) > 0, "sel_streams must not be empty"
 
@@ -166,14 +183,21 @@ def analyze_sel(sel_streams: dict):
         print(f"Number of streams with this sequence: {num_streams}")
         print(f"Number of packets in each stream: {num_packets}")
         print(f"Duration of each stream (seconds): {session_durations}")
-        # TODO: What is the unit of the packet size?
         print(f"Unique packet sizes: {unique_packet_sizes}")
         print(f"Packet inter-arrival times: {avg_packet_iats}")
         print(f"{'-' * 100}\n")
 
 
 def get_packet_iat(packets: list):
-    """Get the inter-arrival times between packets"""
+    """Get the inter-arrival times between packets
+
+    Args:
+        packets: list
+            List of packets
+
+    Returns:
+        list: List of inter-arrival times
+    """
     return [
         float(packets[i + 1]["timestamp"] - packets[i]["timestamp"])
         for i in range(len(packets) - 1)
@@ -181,9 +205,13 @@ def get_packet_iat(packets: list):
 
 
 if __name__ == "__main__":
-    packets = load_pcap(
-        "/Users/charliealders/SCADA_Data/Modbus/substation_split_00001_20180828162856.pcap"
-    )
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python sel.py <pcap_file_path>")
+        sys.exit(1)
+    pcap_file_path = sys.argv[1]
+    packets = load_pcap(pcap_file_path)
 
     # Extract TCP streams
     print("\nExtracting TCP streams...")
