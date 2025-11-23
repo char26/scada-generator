@@ -3,7 +3,7 @@ This script is used to analyze the TCP streams in a PCAP file.
 It extracts the TCP streams, analyzes the ASCII data of the streams,
 and prints the summary statistics.
 
-Sonnet 4.5 was used to generate the pretty print functions.
+Sonnet 4.5 with code completion was used as a baseline to generate the original functions.
 """
 
 from scapy.all import rdpcap, Raw, TCP, IP
@@ -96,7 +96,7 @@ def extract_tcp_streams(packets):
                     "ack": packet[TCP].ack,
                     "flags": str(packet[TCP].flags),
                     "data": raw_data,
-                    "data_len": len(raw_data),
+                    "size": len(bytes(packet)),  # total size of the packet
                     "timestamp": packet.time,
                 }
             )
@@ -108,85 +108,11 @@ def extract_tcp_streams(packets):
     return streams
 
 
-def print_tcp_streams(streams):
-    """
-    Print all TCP streams with their ASCII data
-    """
-    print("=" * 100)
-    print(f"TCP STREAM ANALYSIS")
-    print(f"Total streams found: {len(streams)}")
-    print("=" * 100)
-
-    # Sort streams by total data length (descending)
-    sorted_streams = sorted(
-        streams.items(), key=lambda x: len(x[1]["data"]), reverse=True
-    )
-
-    for stream_num, (stream_id, stream_data) in enumerate(sorted_streams, 1):
-        src_ip, src_port, dst_ip, dst_port = stream_id
-        packets = stream_data["packets"]
-        data = stream_data["data"]
-
-        # Skip empty streams
-        if len(data) == 0:
-            continue
-
-        print(f"\n{'=' * 100}")
-        print(f"Stream #{stream_num}")
-        print(f"  {src_ip}:{src_port} -> {dst_ip}:{dst_port}")
-        print(f"  Packets: {len(packets)} | Total Data: {len(data)} bytes")
-
-        if packets:
-            print(
-                f"  Packet Range: #{packets[0]['packet_num']} - #{packets[-1]['packet_num']}"
-            )
-
-        print(f"{'-' * 100}")
-
-        # Show ASCII data
-        ascii_data = bytes_to_readable_ascii(data)
-        print(f"\nASCII Data:")
-        print(f"  {ascii_data}")
-
-        # Show hex for small streams
-        if len(data) <= 100:
-            print(f"\nHEX:")
-            print(f"  {data.hex()}")
-
-        # Show packet breakdown for small streams
-        if len(packets) <= 20:
-            print(f"\nPacket Breakdown:")
-            for pkt in packets:
-                if pkt["data_len"] > 0:
-                    pkt_ascii = bytes_to_readable_ascii(pkt["data"])
-                    print(
-                        f"  Pkt #{pkt['packet_num']:6d} [{pkt['flags']:>4s}] ({pkt['data_len']:4d} bytes): {pkt_ascii[:80]}"
-                    )
-
-    print("\n" + "=" * 100)
-
-
-def print_stream_summary(streams):
-    """Print summary statistics"""
-    total_streams = len(streams)
-    streams_with_data = sum(1 for s in streams.values() if len(s["data"]) > 0)
-    total_data = sum(len(s["data"]) for s in streams.values())
-
-    print("\n" + "=" * 100)
-    print("SUMMARY")
-    print("=" * 100)
-    print(f"  Total streams: {total_streams}")
-    print(f"  Streams with data: {streams_with_data}")
-    print(f"  Total data bytes: {total_data}")
-
-    if streams_with_data > 0:
-        avg_data = total_data / streams_with_data
-        print(f"  Average data per stream: {avg_data:.1f} bytes")
-
-    print("=" * 100)
-
-
 def get_sel_streams(streams: dict):
+    """Get the SEL streams from the streams dictionary"""
+    assert isinstance(streams, dict), "streams must be a dictionary"
+    assert len(streams) > 0, "streams must not be empty"
+
     sel_streams = {}
     for stream in streams.keys():
         ascii_data = bytes_to_readable_ascii(streams[stream]["data"])
@@ -199,37 +125,57 @@ def get_sel_streams(streams: dict):
                 }
             else:
                 sel_streams[ascii_data]["packets"].append(streams[stream]["packets"])
+
+    assert len(sel_streams) > 0, "No SEL streams found"
     return sel_streams
 
 
 def analyze_sel(sel_streams: dict):
     """Analyze SEL ASCII data of the streams"""
+    assert isinstance(sel_streams, dict), "sel_streams must be a dictionary"
+    assert len(sel_streams) > 0, "sel_streams must not be empty"
+
     print(f"Unique SEL ASCII streams: {len(sel_streams.keys())}")
     for key in sel_streams.keys():
+        # sel_streams format is:
+        # ascii_sequence: { "packets": [[stream_1 packets], [stream_2 packets], ...]}
         # Each unique ASCII sequence is a key, and the
         # value is a list of a list of each stream's packets
         # Using this, we can aggregate the packets and analyze characteristics of each stream.
-        all_stream_packets = sel_streams[key]["packets"]
-        # Intervals are time since last packet
-        packet_intervals = []
-        packet_sizes = []
-        for stream in all_stream_packets:
-            packet_intervals.extend(get_packet_intervals(stream))
-            packet_sizes.extend([packet["data_len"] for packet in stream])
+        all_packet_streams = sel_streams[key]["packets"]
 
-        print(f"UNIQUE STREAM\n{key}\n")
-        print(f"Number of streams with this sequence: {len(sel_streams[key])}")
-        print(f"Average packet size: {sum(packet_sizes) / len(packet_sizes)}")
-        print(
-            f"Average packet interval: {sum(packet_intervals) / len(packet_intervals)}"
-        )
-        print(f"{'-' * 100}")
+        avg_packet_iats: list[float] = []  # inter-arrival times
+        unique_packet_sizes: set[int] = set()
+        session_durations: list[float] = []
+        for stream in all_packet_streams:
+            # list of all iat's for this stream
+            this_stream_iats = get_packet_iat(stream)
+            avg_packet_iats.append(
+                round(sum(this_stream_iats) / len(this_stream_iats), 4)
+            )
+            unique_packet_sizes.update([packet["size"] for packet in stream])
+            session_durations.extend(
+                [round(float(stream[-1]["timestamp"] - stream[0]["timestamp"]), 3)]
+            )
+
+        # number of streams with this sequence
+        num_streams: int = len(all_packet_streams)
+        num_packets: list[int] = [len(stream) for stream in all_packet_streams]
+
+        print(f"== UNIQUE STREAM ==\n{key}\n")
+        print(f"Number of streams with this sequence: {num_streams}")
+        print(f"Number of packets in each stream: {num_packets}")
+        print(f"Duration of each stream (seconds): {session_durations}")
+        # TODO: What is the unit of the packet size?
+        print(f"Unique packet sizes: {unique_packet_sizes}")
+        print(f"Packet inter-arrival times: {avg_packet_iats}")
+        print(f"{'-' * 100}\n")
 
 
-def get_packet_intervals(packets: list):
-    """Get the intervals between packets"""
+def get_packet_iat(packets: list):
+    """Get the inter-arrival times between packets"""
     return [
-        packets[i + 1]["timestamp"] - packets[i]["timestamp"]
+        float(packets[i + 1]["timestamp"] - packets[i]["timestamp"])
         for i in range(len(packets) - 1)
     ]
 
@@ -243,5 +189,16 @@ if __name__ == "__main__":
     print("\nExtracting TCP streams...")
     streams = extract_tcp_streams(packets)
 
+    print("\Analyzing SEL streams...")
     sel_streams = get_sel_streams(streams)
     analyze_sel(sel_streams)
+
+
+"""
+TODO:
+such as total size, direction, and type, convert packets into their bitwise representation,
+and stack packets from the same flow. Additionally, we add extra derived information to the signature
+that might be relevant in fingerprinting, such as number of packets in the signature, packet inter-arrival times
+(shown in the IEC 104 example on the left) and a packet’s relative position in the flow (shown in the MODBUS example on
+the right).
+"""
