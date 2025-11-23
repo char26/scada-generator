@@ -13,6 +13,8 @@ import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+OUTPUT_FILE = "sel_analysis.txt"
+
 SEL_KEYWORDS = [
     "QUIT",
     "ACCES",
@@ -152,40 +154,47 @@ def analyze_sel(sel_streams: dict):
     assert isinstance(sel_streams, dict), "sel_streams must be a dictionary"
     assert len(sel_streams) > 0, "sel_streams must not be empty"
 
-    print(f"Unique SEL ASCII streams: {len(sel_streams.keys())}")
-    for key in sel_streams.keys():
-        # sel_streams format is:
-        # ascii_sequence: { "packets": [[stream_1 packets], [stream_2 packets], ...]}
-        # Each unique ASCII sequence is a key, and the
-        # value is a list of a list of each stream's packets
-        # Using this, we can aggregate the packets and analyze characteristics of each stream.
-        all_packet_streams = sel_streams[key]["packets"]
+    logger.info(f"Writing SEL analysis to {OUTPUT_FILE}")
 
-        avg_packet_iats: list[float] = []  # inter-arrival times
-        unique_packet_sizes: set[int] = set()
-        session_durations: list[float] = []
-        for stream in all_packet_streams:
-            # list of all iat's for this stream
-            this_stream_iats = get_packet_iat(stream)
-            avg_packet_iats.append(
-                round(sum(this_stream_iats) / len(this_stream_iats), 4)
+    with open(OUTPUT_FILE, "w") as f:
+        f.write(f"Unique SEL ASCII streams: {len(sel_streams.keys())}\n")
+        for key in sel_streams.keys():
+            # sel_streams format is:
+            # ascii_sequence: { "packets": [[stream_1 packets], [stream_2 packets], ...]}
+            # Each unique ASCII sequence is a key, and the
+            # value is a list of a list of each stream's packets
+            # Using this, we can aggregate the packets and analyze characteristics of each stream.
+            all_packet_streams = sel_streams[key]["packets"]
+
+            avg_packet_iats: list[float] = []  # inter-arrival times
+            unique_packet_sizes: set[int] = set()
+            session_durations: list[float] = []
+            for stream in all_packet_streams:
+                # list of all iat's for this stream
+                this_stream_iats = get_packet_iat(stream)
+                avg_packet_iats.append(
+                    round(sum(this_stream_iats) / len(this_stream_iats), 4)
+                )
+                unique_packet_sizes.update([packet["size"] for packet in stream])
+                session_durations.extend(
+                    [round(float(stream[-1]["timestamp"] - stream[0]["timestamp"]), 3)]
+                )
+
+            # number of streams with this sequence
+            num_streams: int = len(all_packet_streams)
+            num_packets: list[int] = [len(stream) for stream in all_packet_streams]
+
+            f.write(f"== UNIQUE STREAM ==\n{key}\n")
+            f.write(f"Number of streams with this sequence: {num_streams}\n")
+            f.write(f"Number of packets in each stream: {num_packets}\n")
+            f.write(f"Duration of each stream (seconds): {session_durations}\n")
+            f.write(f"Unique packet sizes: {unique_packet_sizes}\n")
+            f.write(
+                f"Average packet inter-arrival times per stream: {avg_packet_iats}\n"
             )
-            unique_packet_sizes.update([packet["size"] for packet in stream])
-            session_durations.extend(
-                [round(float(stream[-1]["timestamp"] - stream[0]["timestamp"]), 3)]
-            )
+            f.write(f"{'-' * 100}\n\n")
 
-        # number of streams with this sequence
-        num_streams: int = len(all_packet_streams)
-        num_packets: list[int] = [len(stream) for stream in all_packet_streams]
-
-        print(f"== UNIQUE STREAM ==\n{key}\n")
-        print(f"Number of streams with this sequence: {num_streams}")
-        print(f"Number of packets in each stream: {num_packets}")
-        print(f"Duration of each stream (seconds): {session_durations}")
-        print(f"Unique packet sizes: {unique_packet_sizes}")
-        print(f"Packet inter-arrival times: {avg_packet_iats}")
-        print(f"{'-' * 100}\n")
+    logger.info(f"Finished writing SEL analysis to {OUTPUT_FILE}")
 
 
 def get_packet_iat(packets: list):
@@ -214,10 +223,10 @@ if __name__ == "__main__":
     packets = load_pcap(pcap_file_path)
 
     # Extract TCP streams
-    print("\nExtracting TCP streams...")
+    logger.info("Extracting TCP streams...")
     streams = extract_tcp_streams(packets)
 
-    print("\Analyzing SEL streams...")
+    logger.info("Analyzing SEL streams...")
     sel_streams = get_sel_streams(streams)
     analyze_sel(sel_streams)
 
