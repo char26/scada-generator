@@ -9,6 +9,7 @@ Sonnet 4.5 with code completion was used as a baseline to generate the original 
 from scapy.all import rdpcap, Raw, TCP, IP
 from collections import defaultdict
 import logging
+import statistics
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -154,10 +155,10 @@ def analyze_sel(sel_streams: dict):
     assert isinstance(sel_streams, dict), "sel_streams must be a dictionary"
     assert len(sel_streams) > 0, "sel_streams must not be empty"
 
-    logger.info(f"Writing SEL analysis to {OUTPUT_FILE}")
+    logger.info(f"Writing SEL analysis to {OUTPUT_FILE}...")
 
     with open(OUTPUT_FILE, "w") as f:
-        f.write(f"Unique SEL ASCII streams: {len(sel_streams.keys())}\n")
+        f.write(f"Unique SEL ASCII streams: {len(sel_streams.keys())}\n\n")
         for key in sel_streams.keys():
             # sel_streams format is:
             # ascii_sequence: { "packets": [[stream_1 packets], [stream_2 packets], ...]}
@@ -167,14 +168,19 @@ def analyze_sel(sel_streams: dict):
             all_packet_streams = sel_streams[key]["packets"]
 
             avg_packet_iats: list[float] = []  # inter-arrival times
+            max_packet_iats: list[float] = []
+            min_packet_iats: list[float] = []
+            iat_variances: list[float] = []
             unique_packet_sizes: set[int] = set()
             session_durations: list[float] = []
             for stream in all_packet_streams:
                 # list of all iat's for this stream
                 this_stream_iats = get_packet_iat(stream)
-                avg_packet_iats.append(
-                    round(sum(this_stream_iats) / len(this_stream_iats), 4)
-                )
+                this_stream_avg_iat = sum(this_stream_iats) / len(this_stream_iats)
+                avg_packet_iats.append(round(this_stream_avg_iat, 4))
+                iat_variances.append(round(statistics.variance(this_stream_iats), 4))
+                max_packet_iats.append(round(max(this_stream_iats), 4))
+                min_packet_iats.append(min(this_stream_iats))
                 unique_packet_sizes.update([packet["size"] for packet in stream])
                 session_durations.extend(
                     [round(float(stream[-1]["timestamp"] - stream[0]["timestamp"]), 3)]
@@ -190,7 +196,16 @@ def analyze_sel(sel_streams: dict):
             f.write(f"Duration of each stream (seconds): {session_durations}\n")
             f.write(f"Unique packet sizes: {unique_packet_sizes}\n")
             f.write(
-                f"Average packet inter-arrival times per stream: {avg_packet_iats}\n"
+                f"Average packet inter-arrival times (seconds) per stream: {avg_packet_iats}\n"
+            )
+            f.write(
+                f"Variance of packet inter-arrival times (seconds) per stream: {iat_variances}\n"
+            )
+            f.write(
+                f"Maximum packet inter-arrival times (seconds) per stream: {max_packet_iats}\n"
+            )
+            f.write(
+                f"Minimum packet inter-arrival times (seconds) per stream: {min_packet_iats}\n"
             )
             f.write(f"{'-' * 100}\n\n")
 
