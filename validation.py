@@ -37,6 +37,44 @@ def send_and_receive(packet, timeout=2):
         logger.info("Got response for frame %s", getattr(packet, "number", "unknown"))
     return answer
 
+def validate_response(request_packet, response_packet):
+    # Grab raw bytes for both
+    req_raw = request_packet.get_raw_packet()
+    if send.Raw not in response_packet:
+        logger.error("Response has no application payload")
+        return False
+
+    resp_raw = bytes(response_packet[send.Raw].load)
+
+    # Minimal Modbus/TCP checks
+    # 1. Transaction ID (bytes 0–1)
+    req_tid = int.from_bytes(req_raw[0:2], "big")
+    resp_tid = int.from_bytes(resp_raw[0:2], "big")
+
+    if req_tid != resp_tid:
+        logger.error("Transaction ID mismatch: req=%d resp=%d", req_tid, resp_tid)
+        return False
+
+    # 2. Function code (after MBAP header: at offset 7)
+    req_func = req_raw[7]
+    resp_func = resp_raw[7]
+
+    # Excaption response (exceptions always flip highest bit)
+    if resp_func == req_func | 0x80:
+        exception_code = resp_raw[8]
+        logger.error(
+            "Modbus exception for TID %d func %d: exception code %d",
+            req_tid, req_func, exception_code
+        )
+        return False
+
+    if resp_func != req_func:
+        logger.error("Function code mismatch: req=%d resp=%d", req_func, resp_func)
+        return False
+
+    logger.info("Response for TID %d (func %d) looks OK", req_tid, req_func)
+    return True
+
 def main():
     parser = argparse.ArgumentParser(
         description="Validate Modbus packet classification using SVM."
@@ -71,8 +109,8 @@ def main():
         # Send packet to server
         # And collect response
         resp = send_and_receive(packet) # This already logs errors if no response
+        
         # We also need to check the response to see if it makes sense for the query
-
         if resp:
             # Basic validation: check if response has Modbus layer
             if resp.haslayer("Modbus"):
@@ -81,8 +119,9 @@ def main():
                 logger.warning(f"Invalid response for frame {getattr(packet, 'number', 'unknown')}: No Modbus layer")
             
             # More significant validation will probably be needed based on function codes, etc.
-        
-
+            ok = validate_response(packet, resp)
+            if not ok:
+                logger.warning(f"Response validation failed for frame {getattr(packet, 'number', 'unknown')}")
 
 if __name__ == "__main__":
     main()
