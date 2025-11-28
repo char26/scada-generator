@@ -1,14 +1,107 @@
 # Boilerplate validation code
 import pandas as pd
+import pyshark
+import argparse
+import logging
+import scapy.all as send
+import injest
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
-# Load dataset (boilerplate) - replace with actual data loading
+logger = logging.getLogger(__name__)
+SERVER_IP = "1.1.1.1" # Placeholder IP
+INTERFACE = "eth0"  # Placeholder interface
+
+'''
+I really need to break this file up into a notebook or a multi function module
+but for now this will do.
+'''
+def send_and_receive(packet, timeout=2):
+    raw = packet.get_raw_packet()
+    scapy_packet = send.Ether(raw)
+
+    # Force destination
+    if "IP" in scapy_packet:
+        scapy_packet[SERVER_IP].dst = SERVER_IP
+        del scapy_packet[SERVER_IP].chksum  # Recalculate checksum
+        # May also need to do the mac but gonna see how this goes for now
+
+    answer = send.sr1(scapy_packet, iface=INTERFACE, timeout=timeout, verbose=False)
+
+    if answer is None:
+        logger.error("No response for packet with frame number %s", getattr(packet, "number", "unknown"))
+    else:
+        logger.info("Got response for frame %s", getattr(packet, "number", "unknown"))
+    return answer
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Validate Modbus packet classification using SVM."
+    )
+
+    parser.add_argument(
+        "--filepath",
+        type=str,
+        required=True,
+        help="Path to pcap file containing Modbus packets",
+    )
+    parser.add_argument(
+        "--display_filter",
+        type=str,
+        default="modbus",
+        help="Display filter for pyshark capture",
+    )
+
+    args =  parser.parse_args()
+
+
+    # Need to take the pcap, break it into packets via pyshark
+    capture = pyshark.FileCapture(
+        args.filepath,
+        display_filter=args.display_filter,
+    )
+    logger.info(f"Loading capture from {args.filepath}")
+    capture.load_packets()
+
+    # Now we go through each packet and send it to the server using scapy
+    for packet in capture:
+        # Send packet to server
+        # And collect response
+        resp = send_and_receive(packet) # This already logs errors if no response
+        # We also need to check the response to see if it makes sense for the query
+
+        if resp:
+            # Basic validation: check if response has Modbus layer
+            if resp.haslayer("Modbus"):
+                logger.info(f"Valid Modbus response for frame {getattr(packet, 'number', 'unknown')}")
+            else:
+                logger.warning(f"Invalid response for frame {getattr(packet, 'number', 'unknown')}: No Modbus layer")
+            
+            # More significant validation will probably be needed based on function codes, etc.
+        
+
+
+if __name__ == "__main__":
+    main()
+
+'''
+Ignore everything past this point for now.
+'''
+
+# Create default empty dataframe df
+df = pd.DataFrame()
+# Call injest, which returns a default dictionary of field names and their values
+data_injest = injest.main(["--filepath", "path/to/pcap", "--display_filter", "modbus"]) # Replace with actual filepath and filter as needed
+
+for name in data_injest.keys():
+    # Make the key the name of the column and the values the values of that column, the values are in the form of a list
+    df[name] = data_injest[name] # That's a list so hopefully it should just work
+
+# Will need to merge this data with the sythetic data, and add the labels, but I can do that later
 # Assuming there's a label column named 'label', which has a binary classification for the synthetic/real packets.
-df = pd.read_csv('data.csv')  # Placeholder path
 
 X = df.drop(columns=['label'])
 y = df['label']
