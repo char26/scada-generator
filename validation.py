@@ -14,12 +14,9 @@ from sklearn.metrics import accuracy_score, confusion_matrix, classification_rep
 logger = logging.getLogger(__name__)
 SERVER_IP = "1.1.1.1" # Placeholder IP
 INTERFACE = "eth0"  # Placeholder interface
-end_early = True  # Set to True to exit after sending packets and receiving responses
+REAL_PCAP_PATH = "path/to/real_pcap"  # Placeholder path
+FAKE_PCAP_PATH = "path/to/fake_pcap"  # Placeholder path
 
-'''
-I really need to break this file up into a notebook or a multi function module
-but for now this will do.
-'''
 def send_and_receive(packet, timeout=2):
     raw = packet.get_raw_packet()
     scapy_packet = send.Ether(raw)
@@ -38,6 +35,7 @@ def send_and_receive(packet, timeout=2):
         logger.info("Got response for frame %s", getattr(packet, "number", "unknown"))
     return answer
 
+# This may need to be expanded for both modbus and mqtt
 def validate_response(request_packet, response_packet):
     # Grab raw bytes for both
     req_raw = request_packet.get_raw_packet()
@@ -80,13 +78,15 @@ def validate_response(request_packet, response_packet):
 def pcap_to_dataframe(filepath, display_filter):
     df = pd.DataFrame()
     # Use ingest to get the specifed pcap and turn it into a dict
-    data_injest = injest.main(["--filepath", "path/to/pcap", "--display_filter", "modbus"]) # Replace with actual filepath and filter as needed
+    data_injest = injest.main(["--filepath", filepath, "--display_filter", display_filter]) # Replace with actual filepath and filter as needed
 
     # Take the keys (field names) and values (lists of field values) and add them to the dataframe
     for name in data_injest.keys():
         df[name] = data_injest[name] # That's a list so hopefully it should just work
     return df
 
+# The fake and real dataframes are hardcoded so using the fake_idx to set the labels
+# is probably unnecessary but whatever
 def merge_dataframes(df1, df2, fake_idx: int):
     # This also needs to be set up so it adds the labels correctly
     # I want to fill the label column with 0 for real packets and 1 for fake packets
@@ -124,16 +124,17 @@ def main():
     )
 
     parser.add_argument(
-        "--filepath",
-        type=str,
-        required=True,
-        help="Path to pcap file containing Modbus packets",
-    )
-    parser.add_argument(
         "--display_filter",
         type=str,
         default="modbus",
         help="Display filter for pyshark capture",
+    )
+    parser.add_argument(
+        "--run_type",
+        type=str,
+        choices=["Full", "Partial"],
+        default="Partial",
+        help="Type of run: 'Full' for complete validation, 'Partial' for sending/receiving only",
     )
 
     args =  parser.parse_args()
@@ -166,11 +167,11 @@ def main():
             if not ok:
                 logger.warning(f"Response validation failed for frame {getattr(packet, 'number', 'unknown')}")
 
-    if end_early:
+    if args.run_type == "Partial":
         exit(0)
 
-    dfa = pcap_to_dataframe("path/to/pcap", args.display_filter)  # Real packets
-    dfb = pcap_to_dataframe("path/to/fake_pcap", args.display_filter)  # Synthetic packets
+    dfa = pcap_to_dataframe(REAL_PCAP_PATH, args.display_filter)  # Real packets
+    dfb = pcap_to_dataframe(FAKE_PCAP_PATH, args.display_filter)  # Synthetic packets
 
     df = merge_dataframes(dfa, dfb, fake=1)  # Merge, label, and shuffle
 
