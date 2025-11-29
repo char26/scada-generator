@@ -14,6 +14,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix, classification_rep
 logger = logging.getLogger(__name__)
 SERVER_IP = "1.1.1.1" # Placeholder IP
 INTERFACE = "eth0"  # Placeholder interface
+end_early = True  # Set to True to exit after sending packets and receiving responses
 
 '''
 I really need to break this file up into a notebook or a multi function module
@@ -75,6 +76,48 @@ def validate_response(request_packet, response_packet):
     logger.info("Response for TID %d (func %d) looks OK", req_tid, req_func)
     return True
 
+
+def pcap_to_dataframe(filepath, display_filter):
+    df = pd.DataFrame()
+    # Use ingest to get the specifed pcap and turn it into a dict
+    data_injest = injest.main(["--filepath", "path/to/pcap", "--display_filter", "modbus"]) # Replace with actual filepath and filter as needed
+
+    # Take the keys (field names) and values (lists of field values) and add them to the dataframe
+    for name in data_injest.keys():
+        df[name] = data_injest[name] # That's a list so hopefully it should just work
+    return df
+
+def merge_dataframes(df1, df2, fake_idx: int):
+    # This also needs to be set up so it adds the labels correctly
+    # I want to fill the label column with 0 for real packets and 1 for fake packets
+    real_idx = fake_idx ^ 1  # Assuming binary labels 0 and 1
+    df1 = df1.copy()
+    df2 = df2.copy()
+    df1['label'] = real_idx  # Real packets
+    df2['label'] = fake_idx  # Fake packets
+
+    # Concatenate dataframes
+    merged_df = pd.concat([df1, df2], ignore_index=True)
+    # Shuffle the merged dataframe
+    merged_df = merged_df.sample(frac=1, random_state=1).reset_index(drop=True)  # Shuffle with fixed random state for reproducibility
+    return merged_df
+
+def normalize_dataframe(train_df, test_df):
+    scaler = StandardScaler()
+    train_scaled = scaler.fit_transform(train_df)
+    test_scaled = scaler.transform(test_df)
+    return train_scaled, test_scaled
+
+def PCA_reduction(train_df, test_df, n_components=0.95):
+    pca = PCA(n_components=0.95)  # Retain 95% of variance
+    train_pca = pca.fit_transform(train_df)
+    test_pca = pca.transform(test_df)
+    return train_pca, test_pca
+
+def train_svm(X_train, y_train, kernel='linear'):
+    svm = SVC(kernel, random_state=1) # Kernel can be changed as needed, same with random_state
+    return svm.fit(X_train, y_train)
+
 def main():
     parser = argparse.ArgumentParser(
         description="Validate Modbus packet classification using SVM."
@@ -123,52 +166,36 @@ def main():
             if not ok:
                 logger.warning(f"Response validation failed for frame {getattr(packet, 'number', 'unknown')}")
 
+    if end_early:
+        exit(0)
+
+    dfa = pcap_to_dataframe("path/to/pcap", args.display_filter)  # Real packets
+    dfb = pcap_to_dataframe("path/to/fake_pcap", args.display_filter)  # Synthetic packets
+
+    df = merge_dataframes(dfa, dfb, fake=1)  # Merge, label, and shuffle
+
+    X = df.drop(columns=['label'])
+    y = df['label']
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1) # Can change split/state as needed
+
+    X_train_scaled, X_test_scaled = normalize_dataframe(X_train, X_test)
+    X_train_pca, X_test_pca = PCA_reduction(X_train_scaled, X_test_scaled, n_components=0.95)
+
+    print(f'Original number of features: {X.shape[1]}')
+    print(f'Number of features after PCA: {X_train_pca.shape[1]}') # Validate that PCA reduced dimensions, if it doesn't we can tweak or remove
+
+    # SVM Classifier
+    svm = train_svm(X_train_pca, y_train, kernel='linear')
+
+    # Evaluation
+    y_pred = svm.predict(X_test_pca)
+    accuracy = accuracy_score(y_test, y_pred)
+    cm = confusion_matrix(y_test, y_pred)
+
+    print(f'Accuracy: {accuracy:.4f}') # If accuracy is ~50% that means our model cannot distinguish between synthetic and real packets
+    print('Confusion Matrix:\n', cm)
+    print('Classification Report:\n', classification_report(y_test, y_pred))
+
 if __name__ == "__main__":
     main()
-
-'''
-Ignore everything past this point for now.
-'''
-
-# Create default empty dataframe df
-df = pd.DataFrame()
-# Call injest, which returns a default dictionary of field names and their values
-data_injest = injest.main(["--filepath", "path/to/pcap", "--display_filter", "modbus"]) # Replace with actual filepath and filter as needed
-
-for name in data_injest.keys():
-    # Make the key the name of the column and the values the values of that column, the values are in the form of a list
-    df[name] = data_injest[name] # That's a list so hopefully it should just work
-
-# Will need to merge this data with the sythetic data, and add the labels, but I can do that later
-# Assuming there's a label column named 'label', which has a binary classification for the synthetic/real packets.
-
-X = df.drop(columns=['label'])
-y = df['label']
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1) # Can change split/state as needed
-
-# Data normalization
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
-
-# PCA for dimensionality/noise reduction
-pca = PCA(n_components=0.95)  # Retain 95% of variance
-X_train_pca = pca.fit_transform(X_train_scaled)
-X_test_pca = pca.transform(X_test_scaled)
-
-print(f'Original number of features: {X.shape[1]}')
-print(f'Number of features after PCA: {X_train_pca.shape[1]}') # Validate that PCA reduced dimensions, if it doesn't we can tweak or remove
-
-# SVM Classifier
-svm = SVC(kernel='linear', random_state=1) # Kernel can be changed as needed, same with random_state
-svm.fit(X_train_pca, y_train)
-
-# Evaluation
-y_pred = svm.predict(X_test_pca)
-accuracy = accuracy_score(y_test, y_pred)
-cm = confusion_matrix(y_test, y_pred)
-
-print(f'Accuracy: {accuracy:.4f}') # If accuracy is ~50% that means our model cannot distinguish between synthetic and real packets
-print('Confusion Matrix:\n', cm)
-print('Classification Report:\n', classification_report(y_test, y_pred))
