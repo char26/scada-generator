@@ -173,6 +173,7 @@ def analyze_sel(sel_streams: dict):
             iat_variances: list[float] = []
             unique_packet_sizes: set[int] = set()
             session_durations: list[float] = []
+            flag_distributions: list[dict[str, int]] = []
             for stream in all_packet_streams:
                 # list of all iat's for this stream
                 this_stream_iats = get_packet_iat(stream)
@@ -185,6 +186,7 @@ def analyze_sel(sel_streams: dict):
                 session_durations.extend(
                     [round(float(stream[-1]["timestamp"] - stream[0]["timestamp"]), 3)]
                 )
+                flag_distributions.append(get_stream_flags(stream))
 
             # number of streams with this sequence
             num_streams: int = len(all_packet_streams)
@@ -194,7 +196,8 @@ def analyze_sel(sel_streams: dict):
             f.write(f"Number of streams with this sequence: {num_streams}\n")
             f.write(f"Number of packets in each stream: {num_packets}\n")
             f.write(f"Duration of each stream (seconds): {session_durations}\n")
-            f.write(f"Unique packet sizes: {unique_packet_sizes}\n")
+            f.write(f"Unique packet sizes (all streams): {unique_packet_sizes}\n")
+            f.write(f"Flag distributions: {flag_distributions}\n")
             f.write(
                 f"Average packet inter-arrival times (seconds) per stream: {avg_packet_iats}\n"
             )
@@ -226,6 +229,13 @@ def get_packet_iat(packets: list):
         float(packets[i + 1]["timestamp"] - packets[i]["timestamp"])
         for i in range(len(packets) - 1)
     ]
+
+
+def get_stream_flags(packets: list):
+    flags = []
+    for packet in packets:
+        flags.append(packet["flags"])
+    return flags
 
 
 if __name__ == "__main__":
