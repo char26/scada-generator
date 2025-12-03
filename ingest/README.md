@@ -1,12 +1,12 @@
-# Data Injest
+# Data Ingest
 
 ## Usage
 
 The example below pulls packets from the specified pcap file, filters for Modbus packets, then creates a matrix based on the Modbus fields.
 
 ```sh
-cd injest
-python3 injest.py --filename <filename> --display_filter modbus
+cd ingest
+python3 ingest.py --filename <filename> --display_filter modbus
 ```
 
 ## Datasets

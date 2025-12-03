@@ -13,7 +13,7 @@ def get_all_fields(capture: pyshark.FileCapture, protocol: str = "modbus"):
     Returns a set of field names
 
     While it would be faster to hard code the fields for our data, this
-    allows us to easily injest new datasets without changing this code.
+    allows us to easily ingest new datasets without changing this code.
 
     Args:
         capture: pyshark.FileCapture

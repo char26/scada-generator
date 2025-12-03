@@ -244,13 +244,3 @@ if __name__ == "__main__":
     logger.info("Analyzing SEL streams...")
     sel_streams = get_sel_streams(streams)
     analyze_sel(sel_streams)
-
-
-"""
-TODO:
-such as total size, direction, and type, convert packets into their bitwise representation,
-and stack packets from the same flow. Additionally, we add extra derived information to the signature
-that might be relevant in fingerprinting, such as number of packets in the signature, packet inter-arrival times
-(shown in the IEC 104 example on the left) and a packet’s relative position in the flow (shown in the MODBUS example on
-the right).
-"""
