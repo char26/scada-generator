@@ -1,2 +1,3 @@
 pymodbus
 pyshark
+scikit-learn

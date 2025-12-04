@@ -1,15 +1,14 @@
 # scada-generator
 
-Coordinator: Diffusion model, determines the next packet to be sent.
+This repository contains:
 
-Client: May have multiple, Modbus or MQTT client ready to send a packet from the coordinator.
+- Network traffic fingerprinting (Universal and SEL over Modbus)
+- Network traffic generation with a custom ML model
 
-Server: Not implemented by us (pymodbus server, etc), mostly used for verification and testing
+Run modbus server with:
 
-```
+```sh
 python3 server/server_async.py --port 8080
-
-python3 main.py
 ```
 
 ## Datasets
