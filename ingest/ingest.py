@@ -96,7 +96,26 @@ def load_matrix(capture: pyshark.FileCapture, protocol: str = "modbus"):
     return dict_matrix
 
 
-def main():
+# ingest/ingest.py
+
+def run_ingest(filepath: str, display_filter: str = "modbus"):
+    capture = pyshark.FileCapture(
+        filepath,
+        display_filter=display_filter,
+    )
+    logger.info(f"Loading capture from {filepath}")
+    capture.load_packets()
+
+    matrix = load_matrix(capture, display_filter)
+    return matrix
+
+
+def main(filepath: str, display_filter: str = "modbus"):
+    """Programmatic entry point (used by validation)."""
+    return run_ingest(filepath, display_filter)
+
+
+if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -117,16 +136,5 @@ def main():
     )
     args = parser.parse_args()
 
-    capture = pyshark.FileCapture(
-        args.filepath,
-        display_filter=args.display_filter,
-    )
-    logger.info(f"Loading capture from {args.filepath}")
-    capture.load_packets()
-
-    matrix = load_matrix(capture, args.display_filter)
+    matrix = run_ingest(args.filepath, args.display_filter)
     print(matrix)
-
-
-if __name__ == "__main__":
-    main()

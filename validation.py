@@ -4,7 +4,7 @@ import pyshark
 import argparse
 import logging
 import scapy.all as send
-import ingest
+from ingest.ingest import main as ingest_main
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
@@ -14,8 +14,8 @@ from sklearn.metrics import accuracy_score, confusion_matrix, classification_rep
 logger = logging.getLogger(__name__)
 SERVER_IP = "1.1.1.1"  # Placeholder IP
 INTERFACE = "eth0"  # Placeholder interface
-REAL_PCAP_PATH = "path/to/real_pcap"  # Placeholder path
-FAKE_PCAP_PATH = "path/to/fake_pcap"  # Placeholder path
+REAL_PCAP_PATH = "/samples/Modbus_polling_only.pcap"  # Placeholder path
+FAKE_PCAP_PATH = "/samples/synthetic_from_real.pcap"  # Placeholder path
 
 
 def send_and_receive(packet, timeout=2):
@@ -85,9 +85,7 @@ def validate_response(request_packet, response_packet):
 def pcap_to_dataframe(filepath, display_filter):
     df = pd.DataFrame()
     # Use ingest to get the specifed pcap and turn it into a dict
-    data_ingest = ingest.main(
-        ["--filepath", filepath, "--display_filter", display_filter]
-    )  # Replace with actual filepath and filter as needed
+    data_ingest = ingest_main(filepath, display_filter)
 
     # Take the keys (field names) and values (lists of field values) and add them to the dataframe
     for name in data_ingest.keys():
@@ -116,11 +114,36 @@ def merge_dataframes(df1, df2, fake_idx: int):
 
 
 def normalize_dataframe(train_df, test_df):
-    scaler = StandardScaler()
-    train_scaled = scaler.fit_transform(train_df)
-    test_scaled = scaler.transform(test_df)
-    return train_scaled, test_scaled
+    # 1. Map common boolean-like strings to 0/1
+    bool_map = {
+        "True": 1, "False": 0,
+        "true": 1, "false": 0,
+        True: 1, False: 0,
+    }
+    train_df = train_df.replace(bool_map)
+    test_df = test_df.replace(bool_map)
 
+    # 2. Try to convert everything to numeric, non-numeric becomes NaN
+    train_num = train_df.apply(pd.to_numeric, errors="coerce")
+    test_num = test_df.apply(pd.to_numeric, errors="coerce")
+
+    # 3. Drop columns that are completely non-numeric in train
+    #    (all NaN after coercion)
+    keep_cols = train_num.columns[~train_num.isna().all()]
+    train_num = train_num[keep_cols]
+    test_num = test_num[keep_cols]
+
+    # 4. Fill remaining NaNs (e.g. fields missing on some packets)
+    #    You can also use column means if you prefer:
+    #    train_num = train_num.fillna(train_num.mean())
+    train_num = train_num.fillna(0)
+    test_num = test_num.fillna(0)
+
+    # 5. Scale
+    scaler = StandardScaler()
+    train_scaled = scaler.fit_transform(train_num)
+    test_scaled = scaler.transform(test_num)
+    return train_scaled, test_scaled
 
 def PCA_reduction(train_df, test_df, n_components=0.95):
     pca = PCA(n_components=0.95)  # Retain 95% of variance
@@ -130,9 +153,7 @@ def PCA_reduction(train_df, test_df, n_components=0.95):
 
 
 def train_svm(X_train, y_train, kernel="linear"):
-    svm = SVC(
-        kernel, random_state=1
-    )  # Kernel can be changed as needed, same with random_state
+    svm = SVC(kernel=kernel, random_state=1)
     return svm.fit(X_train, y_train)
 
 
@@ -157,7 +178,7 @@ def main():
 
     args = parser.parse_args()
 
-    # Need to take the pcap, break it into packets via pyshark
+    """# Need to take the pcap, break it into packets via pyshark
     capture = pyshark.FileCapture(
         args.filepath,
         display_filter=args.display_filter,
@@ -188,7 +209,7 @@ def main():
             if not ok:
                 logger.warning(
                     f"Response validation failed for frame {getattr(packet, 'number', 'unknown')}"
-                )
+                )"""
 
     if args.run_type == "Partial":
         exit(0)
@@ -196,7 +217,7 @@ def main():
     dfa = pcap_to_dataframe(REAL_PCAP_PATH, args.display_filter)  # Real packets
     dfb = pcap_to_dataframe(FAKE_PCAP_PATH, args.display_filter)  # Synthetic packets
 
-    df = merge_dataframes(dfa, dfb, fake=1)  # Merge, label, and shuffle
+    df = merge_dataframes(dfa, dfb, fake_idx=1)  # Merge, label, and shuffle
 
     X = df.drop(columns=["label"])
     y = df["label"]
