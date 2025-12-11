@@ -69,7 +69,7 @@ def load_pcap(pcap_path: str):
 def extract_tcp_streams(packets):
     """
     Extract TCP streams from packets.
-    A stream is defined by the 5-tuple: (src_ip, src_port, dst_ip, dst_port, protocol)
+    A stream is defined by the 4-tuple: (src_ip, src_port, dst_ip, dst_port)
     We track each direction separately.
 
     Args:
@@ -90,12 +90,10 @@ def extract_tcp_streams(packets):
 
             stream_id = (src_ip, src_port, dst_ip, dst_port)
 
-            # Get raw data if present
             raw_data = b""
             if Raw in packet:
                 raw_data = bytes(packet[Raw].load)
 
-            # Add to stream
             streams[stream_id]["packets"].append(
                 {
                     "packet_num": i,
@@ -103,12 +101,11 @@ def extract_tcp_streams(packets):
                     "ack": packet[TCP].ack,
                     "flags": str(packet[TCP].flags),
                     "data": raw_data,
-                    "size": len(bytes(packet)),  # total size of the packet
+                    "size": len(bytes(packet)),
                     "timestamp": packet.time,
                 }
             )
 
-            # Append data to stream
             if raw_data:
                 streams[stream_id]["data"] += raw_data
 
@@ -173,7 +170,7 @@ def analyze_sel(sel_streams: dict):
             iat_variances: list[float] = []
             unique_packet_sizes: set[int] = set()
             session_durations: list[float] = []
-            flag_distributions: list[dict[str, int]] = []
+            flag_sequences: list[list[str]] = []
             for stream in all_packet_streams:
                 # list of all iat's for this stream
                 this_stream_iats = get_packet_iat(stream)
@@ -186,7 +183,7 @@ def analyze_sel(sel_streams: dict):
                 session_durations.extend(
                     [round(float(stream[-1]["timestamp"] - stream[0]["timestamp"]), 3)]
                 )
-                flag_distributions.append(get_stream_flags(stream))
+                flag_sequences.append(get_stream_flags(stream))
 
             # number of streams with this sequence
             num_streams: int = len(all_packet_streams)
@@ -197,7 +194,7 @@ def analyze_sel(sel_streams: dict):
             f.write(f"Number of packets in each stream: {num_packets}\n")
             f.write(f"Duration of each stream (seconds): {session_durations}\n")
             f.write(f"Unique packet sizes (all streams): {unique_packet_sizes}\n")
-            f.write(f"Flag distributions: {flag_distributions}\n")
+            f.write(f"Flag sequences: {flag_sequences}\n")
             f.write(
                 f"Average packet inter-arrival times (seconds) per stream: {avg_packet_iats}\n"
             )
@@ -247,7 +244,6 @@ if __name__ == "__main__":
     pcap_file_path = sys.argv[1]
     packets = load_pcap(pcap_file_path)
 
-    # Extract TCP streams
     logger.info("Extracting TCP streams...")
     streams = extract_tcp_streams(packets)
 
